@@ -1,48 +1,38 @@
 const express = require("express");
 const cors = require("cors");
-const { ObjectId } = require("mongodb");
-const { getCollection } = require("./db");
-const { connectToDatabase } = require("./db");
+const {
+  connectToDatabase,
+  obtenerComentarios,
+  obtenerComentarioPorId,
+  obtenerComentarioPorEmail,
+  agregarComentario,
+  actualizarComentario,
+  eliminarComentario,
+  eliminarTodos
+} = require("./db");
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(cors()); // Permite conexiones desde el frontend
+app.use(cors()); // Permite conexiones desde cualquier origen
 app.use(express.json()); // Middleware para recibir JSON
 
 connectToDatabase();
 
-//Obtiene y muestra comentarios
-app.get("/", async (req, res) => {
-    try {
-        const { id, email } = req.query;
-        const coleccion = await getCollection();
-        let comentarios;
-        if (id) {
-          comentarios = await coleccion.find({ _id: new ObjectId(id) }).toArray();
-        } else if (email) {
-          comentarios = await coleccion.find({ email: email }).toArray();
-        } else {
-          comentarios = await coleccion.find().toArray();
-        }
-        res.json({
-            coleccion: coleccion,
-        });
-      } catch (error) {
-        console.error(
-          "Error interno del servidor - Error al buscar comentarios: ",
-          error.message
-        );
-        res
-          .status(500)
-          .send(
-            "Error interno del servidor - Error al buscar comentarios: " +
-              error.message
-          );
-      }
+// Obtiene y muestra comentarios
+app.get("/comentarios", async (req, res) => {
+  try {
+    const { id, email } = req.query;
+    if (id) res.json({ comentarios: await obtenerComentarioPorId(id) });
+    else if (email)
+      res.json({ comentarios: await obtenerComentarioPorEmail(email) });
+    else res.json({ comentarios: await obtenerComentarios() });
+  } catch (error) {
+    res.json({ error: "Error al obtener comentarios: " + error.message });
+  }
 });
 
-//Agrega un comentario
+// Agrega un comentario
 app.post("/agregar", async (req, res) => {
   try {
     const opciones = {
@@ -56,109 +46,90 @@ app.post("/agregar", async (req, res) => {
     };
     const fecha = new Date().toLocaleString("es-AR", opciones);
     const { apellido, nombre, email, asunto, mensaje } = req.body;
-    const coleccion = getCollection();
-    await coleccion.insertOne({
-      fecha,
-      apellido,
-      nombre,
-      email,
-      asunto,
-      mensaje,
+    await agregarComentario(fecha, apellido, nombre, email, asunto, mensaje);
+    res.json({
+      mensaje: "Comentario agregado: ",
+      datos: {
+        fecha: fecha,
+        apellido: apellido,
+        nombre: nombre,
+        email: email,
+        asunto: asunto,
+        mensaje: mensaje,
+      },
     });
-    res.redirect("/");
   } catch (error) {
-    console.error(
-      "Error interno del servidor - Error al agregar comentarios: ",
-      error.message
-    );
-    res
-      .status(500)
-      .send(
-        "Error interno del servidor - Error al agregar comentarios: " +
-          error.message
-      );
+    res.json({ error: "Error al agregar comentario: " + error.message });
   }
 });
 
-//Actualiza un comentario
+// Actualiza un comentario
 app.put("/editar/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { apellido, nombre, email, asunto, mensaje } = req.body;
-    const coleccion = getCollection();
-    const result = await coleccion.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { apellido, nombre, email, asunto, mensaje } }
-    );
-    if (result.matchedCount === 1) {
-      res.status(200).send("Comentario actualizado");
+    const comentario = await obtenerComentarioPorId(id);
+    if (comentario[0] === undefined) {
+      res.json({ error: "Comentario no encontrado" });
     } else {
-      res.status(404).send("Comentario no encontrado");
+      await actualizarComentario(
+        comentario[0]._id.toString(),
+        apellido,
+        nombre,
+        email,
+        asunto,
+        mensaje
+      );
+      res.json({
+        mensaje: "Comentario actualizado",
+        datos: {
+          fecha: comentario[0].fecha,
+          apellido: apellido,
+          nombre: nombre,
+          email: email,
+          asunto: asunto,
+          mensaje: mensaje,
+        },
+      });
     }
   } catch (error) {
-    console.error(
-      "Error interno del servidor - Error al actualizar comentarios: ",
-      error.message
-    );
-    res
-      .status(500)
-      .send(
-        "Error interno del servidor - Error al actualizar comentarios: " +
-          error.message
-      );
+    res.json({ error: "Error al actualizar comentario: " + error.message });
   }
 });
 
-//Elimina un comentario
+// Elimina un comentario
 app.delete("/eliminar/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const coleccion = getCollection();
-    const result = await coleccion.deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 1) {
-      res.status(200).send("Comentario eliminado");
+    const comentario = await obtenerComentarioPorId(id);
+    if (comentario[0] === undefined) {
+      res.json({ error: "Comentario no encontrado" });
     } else {
-      res.status(404).send("Comentario no encontrado");
+      await eliminarComentario(comentario[0]._id.toString());
+      res.json({ mensaje: "Comentario eliminado" });
     }
   } catch (error) {
-    console.error(
-      "Error interno del servidor - Error al eliminar comentarios: ",
-      error.message
-    );
-    res
-      .status(500)
-      .send(
-        "Error interno del servidor - Error al eliminar comentarios: " +
-          error.message
-      );
+    res.json({ error: "Error al eliminar comentario: " + error.message });
   }
 });
 
-//Elimina todos los comentarios
-app.delete("/eliminarTodos", async (req, res) => {
+// Elimina todos los comentarios
+app.delete("/eliminar", async (req, res) => {
   try {
-    const coleccion = getCollection();
-    const result = await coleccion.deleteMany({});
-    if (result.deletedCount > 0) {
-      res.status(200).send("Comentarios eliminados");
+    const comentarios = await eliminarTodos();
+    if (comentarios.deletedCount > 0) {
+      res
+        .json({ mensaje: "Todos los comentarios fueron eliminados" });
     } else {
-      res.status(404).send("No se encontraron comentarios");
+      res
+        .json({ error: "No se encontraron comentarios para eliminar" });
     }
   } catch (error) {
-    console.error(
-      "Error interno del servidor - Error al eliminar comentarios: ",
-      error.message
-    );
-    res
-      .status(500)
-      .send(
-        "Error interno del servidor - Error al eliminar comentarios: " +
-          error.message
-      );
+    res.json({error: "Error al eliminar todos los comentarios: " + error.message});
   }
 });
 
-//Inicia el servidor en el puerto 3000
+// Inicia el servidor en el puerto 3000
 app.listen(port, () => {
-  console.log(`App escuchando en http://localhost:${port}`);
+  console.log(`Servidor escuchando en http://localhost:${port}`);
 });
