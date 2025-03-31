@@ -33,7 +33,7 @@ async function obtenerComentarioPorId(id) {
   return await coleccion.find({ _id: new ObjectId(id) }).toArray();
 }
 
-// Función para obtener los comentarios por ID
+// Función para obtener los comentarios por email
 async function obtenerComentarioPorEmail(email) {
   return await coleccion.find({ email: email }).toArray();
 }

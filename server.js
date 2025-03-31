@@ -23,10 +23,15 @@ connectToDatabase();
 app.get("/comentarios", async (req, res) => {
   try {
     const { id, email } = req.query;
-    if (id) res.json({ comentarios: await obtenerComentarioPorId(id) });
-    else if (email)
-      res.json({ comentarios: await obtenerComentarioPorEmail(email) });
-    else res.json({ comentarios: await obtenerComentarios() });
+    const comentarios = await obtenerComentarios();
+    if (comentarios.length == 0) res.json({ mensaje: "No hay comentarios." });
+    else {
+        const comentarioPorId = await obtenerComentarioPorId(id);
+        const comentariosPorEmail = await obtenerComentarioPorEmail(email);
+        if (id) res.json({ comentario: comentarioPorId });
+        else if (email) res.json({ comentarios: comentariosPorEmail });
+        else res.json({ comentarios: comentarios });
+    }
   } catch (error) {
     res.json({ error: "Error al obtener comentarios: " + error.message });
   }
@@ -46,9 +51,12 @@ app.post("/agregar", async (req, res) => {
     };
     const fecha = new Date().toLocaleString("es-AR", opciones);
     const { apellido, nombre, email, asunto, mensaje } = req.body;
+    if (!apellido || !nombre || !email || !asunto || !mensaje) {
+        return res.json({ error: "Todos los campos son obligatorios." });
+      }
     await agregarComentario(fecha, apellido, nombre, email, asunto, mensaje);
     res.json({
-      mensaje: "Comentario agregado: ",
+      mensaje: "Comentario agregado.",
       datos: {
         fecha: fecha,
         apellido: apellido,
@@ -67,11 +75,15 @@ app.post("/agregar", async (req, res) => {
 app.put("/editar/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { apellido, nombre, email, asunto, mensaje } = req.body;
+    let { apellido, nombre, email, asunto, mensaje } = req.body;
     const comentario = await obtenerComentarioPorId(id);
-    if (comentario[0] === undefined) {
-      res.json({ error: "Comentario no encontrado" });
-    } else {
+    if (comentario.length == 0) res.json({ mensaje: "Comentario no encontrado." });
+    else {
+      if (!apellido) apellido = comentario[0].apellido;
+      if (!nombre) nombre = comentario[0].nombre;
+      if (!email) email = comentario[0].email;
+      if (!asunto) asunto = comentario[0].asunto;
+      if (!mensaje) mensaje = comentario[0].mensaje;
       await actualizarComentario(
         comentario[0]._id.toString(),
         apellido,
@@ -81,7 +93,7 @@ app.put("/editar/:id", async (req, res) => {
         mensaje
       );
       res.json({
-        mensaje: "Comentario actualizado",
+        mensaje: "Comentario actualizado.",
         datos: {
           fecha: comentario[0].fecha,
           apellido: apellido,
@@ -102,11 +114,10 @@ app.delete("/eliminar/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const comentario = await obtenerComentarioPorId(id);
-    if (comentario[0] === undefined) {
-      res.json({ error: "Comentario no encontrado" });
-    } else {
+    if (comentario.length == 0) res.json({ mensaje: "Comentario no encontrado." });
+    else {
       await eliminarComentario(comentario[0]._id.toString());
-      res.json({ mensaje: "Comentario eliminado" });
+      res.json({ mensaje: "Comentario eliminado." });
     }
   } catch (error) {
     res.json({ error: "Error al eliminar comentario: " + error.message });
@@ -119,10 +130,10 @@ app.delete("/eliminar", async (req, res) => {
     const comentarios = await eliminarTodos();
     if (comentarios.deletedCount > 0) {
       res
-        .json({ mensaje: "Todos los comentarios fueron eliminados" });
+        .json({ mensaje: "Todos los comentarios fueron eliminados." });
     } else {
       res
-        .json({ error: "No se encontraron comentarios para eliminar" });
+        .json({ mensaje: "No se encontraron comentarios para eliminar." });
     }
   } catch (error) {
     res.json({error: "Error al eliminar todos los comentarios: " + error.message});
