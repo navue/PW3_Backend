@@ -89,7 +89,7 @@ app.get("/comentarios", verifyToken, authorizeRole(['admin', 'usuario']), async 
     const { id, email } = req.query;
     const comentarios = await obtenerComentarios();
     if (comentarios.length == 0)
-      res.status(204).json({ mensaje: "No hay comentarios." }); // No content
+      res.status(200).json({ mensaje: "No hay comentarios." });
     else {
       const comentarioPorId = await obtenerComentarioPorId(id);
       const comentariosPorEmail = await obtenerComentarioPorEmail(email);
@@ -151,25 +151,26 @@ app.post("/agregar", verifyToken, authorizeRole(['admin', 'usuario']), async (re
   }
 });
 
-// Actualiza un comentario
-app.put("/editar/:id", verifyToken, authorizeRole(['admin']), async (req, res) => {
+// Editar un comentario
+app.put("/editar/:id", verifyToken, authorizeRole(['admin', 'usuario']), async (req, res) => {
   try {
     const { id } = req.params;
-    let { apellido, nombre, email, asunto, mensaje } = req.body;
+    let { apellido, nombre, asunto, mensaje } = req.body;
     const comentario = await obtenerComentarioPorId(id);
     if (comentario.length == 0)
       res.status(404).json({ mensaje: "Comentario no encontrado." });
+    if (req.user.rol === "usuario" && req.user.username !== comentario[0].email) {
+        return res.status(403).json({ mensaje: "No tienes permiso para editar este comentario." });
+    }
     else {
       if (!apellido) apellido = comentario[0].apellido;
       if (!nombre) nombre = comentario[0].nombre;
-      if (!email) email = comentario[0].email;
       if (!asunto) asunto = comentario[0].asunto;
       if (!mensaje) mensaje = comentario[0].mensaje;
       await actualizarComentario(
         comentario[0]._id.toString(),
         apellido,
         nombre,
-        email,
         asunto,
         mensaje
       );
@@ -179,7 +180,7 @@ app.put("/editar/:id", verifyToken, authorizeRole(['admin']), async (req, res) =
           fecha: comentario[0].fecha,
           apellido: apellido,
           nombre: nombre,
-          email: email,
+          email: comentario[0].email,
           asunto: asunto,
           mensaje: mensaje,
         },
@@ -197,12 +198,15 @@ app.put("/editar/:id", verifyToken, authorizeRole(['admin']), async (req, res) =
 });
 
 // Elimina un comentario
-app.delete("/eliminar/:id", verifyToken,authorizeRole(['admin']),  async (req, res) => {
+app.delete("/eliminar/:id", verifyToken,authorizeRole(['admin', 'usuario']),  async (req, res) => {
   try {
     const { id } = req.params;
     const comentario = await obtenerComentarioPorId(id);
     if (comentario.length == 0)
       res.status(404).json({ mensaje: "Comentario no encontrado." });
+    if (req.user.rol === "usuario" && req.user.username !== comentario[0].email) {
+        return res.status(403).json({ mensaje: "No tienes permiso para eliminar este comentario." });
+    }
     else {
       await eliminarComentario(comentario[0]._id.toString());
       res.status(200).json({ mensaje: "Comentario eliminado." });
@@ -219,7 +223,7 @@ app.delete("/eliminar/:id", verifyToken,authorizeRole(['admin']),  async (req, r
 });
 
 // Elimina todos los comentarios
-app.delete("/eliminar", verifyToken, authorizeRole(['admin', 'usuario']), async (req, res) => {
+app.delete("/eliminar", verifyToken, authorizeRole(['admin']), async (req, res) => {
   try {
     const comentarios = await eliminarTodos();
     if (comentarios.deletedCount > 0) {
@@ -228,8 +232,8 @@ app.delete("/eliminar", verifyToken, authorizeRole(['admin', 'usuario']), async 
         .json({ mensaje: "Todos los comentarios fueron eliminados." });
     } else {
       res
-        .status(204)
-        .json({ mensaje: "No se encontraron comentarios para eliminar." }); // No content
+        .status(200)
+        .json({ mensaje: "No se encontraron comentarios para eliminar." });
     }
   } catch (error) {
     res

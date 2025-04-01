@@ -63,18 +63,17 @@ async function agregarComentario(
   });
 }
 
-// Función para actualizar un comentario
+// Función para editar un comentario
 async function actualizarComentario(
   id,
   apellido,
   nombre,
-  email,
   asunto,
   mensaje
 ) {
   return await comentarios.updateOne(
     { _id: new ObjectId(id) },
-    { $set: { apellido, nombre, email, asunto, mensaje } }
+    { $set: { apellido, nombre, asunto, mensaje } }
   );
 }
 
