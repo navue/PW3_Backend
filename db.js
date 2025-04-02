@@ -25,6 +25,19 @@ async function connectToDatabase() {
   }
 }
 
+// Función para agregar un usuario
+async function registrarUsuario(
+    username,
+    password,
+  ) {
+    console.log(username, password)
+    return await usuarios.insertOne({
+      username: username,
+      password: password,
+      rol: "usuario"
+    });
+  }
+
 async function obtenerUsuarios() {
     return await usuarios.find({}).toArray();
   }
@@ -90,6 +103,7 @@ async function eliminarTodos() {
 
 module.exports = {
   connectToDatabase,
+  registrarUsuario,
   obtenerUsuarios,
   obtenerComentarios,
   obtenerComentarioPorId,
