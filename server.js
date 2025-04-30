@@ -1,5 +1,20 @@
+// Express
 const express = require("express");
+// Cors
 const cors = require("cors");
+// Seguridad (JWT)
+const jwt = require("jsonwebtoken");
+const { SECRET_KEY } = require("./config.js");
+// Buenas prácticas (Sanitización)
+const {body, validationResult} = require('express-validator')
+const sanitizeHtml = require('sanitize-html');
+// Buenas prácticas (Limitación)
+const rateLimit = require('express-rate-limit');
+// Buenas prácticas (Logs)
+const fs = require('fs');
+const path = require('path');
+const morgan = require('morgan');
+// BD
 const {
   connectToDatabase,
   registrarUsuario,
@@ -12,16 +27,27 @@ const {
   eliminarComentario,
   eliminarTodos,
 } = require("./db");
-const jwt = require("jsonwebtoken");
-const { SECRET_KEY } = require("./config.js");
 
 const app = express();
 const port = process.env.PORT || 3000;
-
 app.use(cors()); // Permite conexiones desde cualquier origen
 app.use(express.json()); // Middleware para recibir JSON
-
 connectToDatabase();
+
+// Limitador de comentarios
+const comentarioLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10, // Máximo 10 comentarios cada 15 min por IP
+  message: "Demasiadas solicitudes. Por favor, intente más tarde.",
+  statusCode: 429
+});
+
+// Generación del archivo de logs
+const accessLogStream = fs.createWriteStream(
+  path.join(__dirname, 'access.log'),
+  { flags: 'a' }
+);
+app.use(morgan('combined', { stream: accessLogStream }));
 
 // Ruta de registro
 app.post("/registro", async (req, res) => {
@@ -157,9 +183,52 @@ app.get(
 // Agrega un comentario
 app.post(
   "/agregar",
+  comentarioLimiter,
   verifyToken,
   authorizeRole(["admin", "usuario"]),
+  // Sanitización con express-validator y validacion de datos (modifico los mensajes para mejor compresión)
+  [
+  body("apellido")
+    .isString().withMessage("El apellido debe ser un texto.")
+    .trim().notEmpty().withMessage("El campo apellido es obligatorio.")
+    .custom(value => {
+      if (!/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/.test(value)) { // Acepta letras y espacios
+        throw new Error("El apellido contiene caracteres inválidos.");
+      }
+      return true;
+    }),
+  body("nombre")
+    .isString().withMessage("El nombre debe ser un texto.")
+    .trim().notEmpty().withMessage("El campo nombre es obligatorio.")
+    .custom(value => {
+      if (!/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/.test(value)) { // Acepta letras y espacios
+        throw new Error("El nombre contiene caracteres inválidos.");
+      }
+      return true;
+    }),
+  body("email")
+    .isEmail().withMessage("Debe ingresar un email válido.")
+    .normalizeEmail(),
+  body("asunto")
+    .isString().withMessage("El asunto debe ser un texto.")
+    .trim().notEmpty().withMessage("El campo asunto es obligatorio.")
+    .custom(value => {
+      if (!/^[a-zA-ZzÁÉÍÓÚÜÑáéíóúüñ0-9\s]+$/.test(value)) { // Acepta letras, números yespacios
+        throw new Error("El asunto contiene caracteres inválidos.");
+      }
+      return true;
+    }),
+  body("mensaje")
+    .isString().withMessage("El mensaje debe ser un texto.")
+    .trim().notEmpty().withMessage("El campo mensaje es obligatorio."),
+],
   async (req, res) => {
+    // Verificar errores de validación
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
     try {
       const opciones = {
         timeZone: "America/Argentina/Buenos_Aires",
@@ -171,23 +240,18 @@ app.post(
         second: "2-digit",
       };
       const fecha = new Date().toLocaleString("es-AR", opciones);
-      const { apellido, nombre, email, asunto, mensaje } = req.body;
-      if (!apellido || !nombre || !email || !asunto || !mensaje) {
-        return res
-          .status(400)
-          .json({ error: "Todos los campos son obligatorios." });
-      }
+
+      // Sanitizar campos del cuerpo
+      const apellido = sanitizeHtml(req.body.apellido);
+      const nombre = sanitizeHtml(req.body.nombre);
+      const email = sanitizeHtml(req.body.email);
+      const asunto = sanitizeHtml(req.body.asunto);
+      const mensaje = sanitizeHtml(req.body.mensaje);
+
       await agregarComentario(fecha, apellido, nombre, email, asunto, mensaje);
       res.status(201).json({
         mensaje: "Comentario agregado.",
-        datos: {
-          fecha: fecha,
-          apellido: apellido,
-          nombre: nombre,
-          email: email,
-          asunto: asunto,
-          mensaje: mensaje,
-        },
+        datos: { fecha, apellido, nombre, email, asunto, mensaje },
       });
     } catch (error) {
       res.status(500).json({
