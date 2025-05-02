@@ -1,19 +1,35 @@
 // Express
 const express = require("express");
+const app = express();
+const port = process.env.PORT || 3000;
+app.use(express.json());
+
 // Cors
 const cors = require("cors");
+const cors_options = {
+  origin: "http://localhost:3000",
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+};
+app.use(cors(cors_options));
+
 // Seguridad (JWT)
 const jwt = require("jsonwebtoken");
 const { SECRET_KEY } = require("./config.js");
+
 // Buenas prácticas (Sanitización)
 const {body, validationResult} = require('express-validator')
 const sanitizeHtml = require('sanitize-html');
+
 // Buenas prácticas (Limitación)
 const rateLimit = require('express-rate-limit');
+
 // Buenas prácticas (Logs)
 const fs = require('fs');
 const path = require('path');
 const morgan = require('morgan');
+
 // BD
 const {
   connectToDatabase,
@@ -27,12 +43,41 @@ const {
   eliminarComentario,
   eliminarTodos,
 } = require("./db");
-
-const app = express();
-const port = process.env.PORT || 3000;
-app.use(cors()); // Permite conexiones desde cualquier origen
-app.use(express.json()); // Middleware para recibir JSON
 connectToDatabase();
+
+// Fecha y horario argentina
+const fechaArg = {
+  timeZone: "America/Argentina/Buenos_Aires",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+};
+
+// Verificador de token
+const verifyToken = (req, res, next) => {
+  const token = req.headers["authorization"];
+  if (!token) return res.status(403).json({ mensaje: "Token requerido." });
+
+  jwt.verify(token.split(" ")[1], SECRET_KEY, (err, decoded) => {
+    if (err) return res.status(401).json({ mensaje: "Token inválido." });
+
+    req.user = decoded; // Guarda la info del usuario en la request
+    next();
+  });
+};
+
+// Verificador de roles
+const authorizeRole = (roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.rol)) {
+      return res.status(403).json({ error: "Acceso no autorizado." });
+    }
+    next();
+  };
+};
 
 // Limitador de comentarios
 const comentarioLimiter = rateLimit({
@@ -43,11 +88,16 @@ const comentarioLimiter = rateLimit({
 });
 
 // Generación del archivo de logs
+morgan.token("fecha_arg", () => {
+  return new Date().toLocaleString("es-AR", fechaArg); // Formato fecha y horario argentina
+});
 const accessLogStream = fs.createWriteStream(
   path.join(__dirname, 'access.log'),
   { flags: 'a' }
 );
-app.use(morgan('combined', { stream: accessLogStream }));
+// Simulo 'combined' pero con horario Arg.
+const formatoApacheArg = ':remote-addr - :remote-user [:fecha_arg] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"';
+app.use(morgan(formatoApacheArg, { stream: accessLogStream }));
 
 // Ruta de registro
 app.post("/registro", async (req, res) => {
@@ -128,29 +178,6 @@ app.post("/ingreso", async (req, res) => {
   }
 });
 
-// Middleware para verificar token
-const verifyToken = (req, res, next) => {
-  const token = req.headers["authorization"];
-  if (!token) return res.status(403).json({ mensaje: "Token requerido." });
-
-  jwt.verify(token.split(" ")[1], SECRET_KEY, (err, decoded) => {
-    if (err) return res.status(401).json({ mensaje: "Token inválido." });
-
-    req.user = decoded; // Guarda la info del usuario en la request
-    next();
-  });
-};
-
-// Middleware para verificar roles
-const authorizeRole = (roles) => {
-  return (req, res, next) => {
-    if (!roles.includes(req.user.rol)) {
-      return res.status(403).json({ error: "Acceso no autorizado." });
-    }
-    next();
-  };
-};
-
 // Obtiene y muestra comentarios
 app.get(
   "/comentarios",
@@ -230,16 +257,7 @@ app.post(
     }
 
     try {
-      const opciones = {
-        timeZone: "America/Argentina/Buenos_Aires",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      };
-      const fecha = new Date().toLocaleString("es-AR", opciones);
+      const fecha = new Date().toLocaleString("es-AR", fechaArg);
 
       // Sanitizar campos del cuerpo
       const apellido = sanitizeHtml(req.body.apellido);
