@@ -60,7 +60,6 @@ const fechaArg = {
 const verifyToken = (req, res, next) => {
   const token = req.headers["authorization"];
   if (!token) return res.status(403).json({ mensaje: "Token requerido." });
-
   jwt.verify(token.split(" ")[1], SECRET_KEY, (err, decoded) => {
     if (err) return res.status(401).json({ mensaje: "Token inválido." });
 
@@ -79,12 +78,111 @@ const authorizeRole = (roles) => {
   };
 };
 
-// Limitador de comentarios
-const comentarioLimiter = rateLimit({
+// Sanitización y validación para comentarios
+const validarComentario = [
+  body("apellido")
+    .isString().withMessage("El apellido debe ser un texto.")
+    .trim().notEmpty().withMessage("El campo apellido es obligatorio.")
+    .custom(value => {
+      if (!/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/.test(value)) {
+        throw new Error("El apellido contiene caracteres inválidos.");
+      }
+      return true;
+    })
+    .customSanitizer(value => sanitizeHtml(value)),
+  body("nombre")
+    .isString().withMessage("El nombre debe ser un texto.")
+    .trim().notEmpty().withMessage("El campo nombre es obligatorio.")
+    .custom(value => {
+      if (!/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/.test(value)) {
+        throw new Error("El nombre contiene caracteres inválidos.");
+      }
+      return true;
+    })
+    .customSanitizer(value => sanitizeHtml(value)),
+  body("email")
+    .isEmail().withMessage("Debe ingresar un email válido.")
+    .normalizeEmail()
+    .customSanitizer(value => sanitizeHtml(value)),
+  body("asunto")
+    .isString().withMessage("El asunto debe ser un texto.")
+    .trim().notEmpty().withMessage("El campo asunto es obligatorio.")
+    .custom(value => {
+      if (!/^[a-zA-ZÁÉÍÓÚÜÑáéíóúüñ0-9\s]+$/.test(value)) {
+        throw new Error("El asunto contiene caracteres inválidos.");
+      }
+      return true;
+    })
+    .customSanitizer(value => sanitizeHtml(value)),
+  body("mensaje")
+    .isString().withMessage("El mensaje debe ser un texto.")
+    .trim().notEmpty().withMessage("El campo mensaje es obligatorio.")
+    .customSanitizer(value => sanitizeHtml(value))
+];
+
+// Sanitización y validacion para registro/ingresos
+const validarRegistroIngreso = [
+  body("username")
+    .isEmail().withMessage("Debe ingresar un email válido.")
+    .normalizeEmail()
+    .customSanitizer(value => sanitizeHtml(value)),
+  body("password")
+    .isLength({ min: 6 }).withMessage("La contraseña debe tener al menos 6 caracteres.")
+    .matches(/[A-Z]/).withMessage("Debe contener al menos una letra mayúscula.")
+    .matches(/[a-z]/).withMessage("Debe contener al menos una letra minúscula.")
+    .matches(/[0-9]/).withMessage("Debe contener al menos un número.")
+    .customSanitizer(value => sanitizeHtml(value))
+];
+
+// Limitador de registros
+const registroLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10, // Máximo 10 comentarios cada 15 min por IP
+  max: 5, // Máximo 5 acciones cada 15 minutos por IP
+  message: "Demasiados intentos. Intente nuevamente en 15 minutos.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Limitador de ingresos
+const ingresoLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5, // Máximo 5 acciones cada 15 minutos por IP
+  message: "Demasiados intentos. Intente nuevamente en 15 minutos.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Limitador de agregado de comentarios
+const agregadoLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10, // Máximo 10 comentarios cada 15 minutos por IP
   message: "Demasiadas solicitudes. Por favor, intente más tarde.",
   statusCode: 429
+});
+
+// Limitador de edición de comentarios
+const edicionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10, // Máximo 10 comentarios cada 15 minutos por IP
+  message: "Demasiadas solicitudes. Por favor, intente más tarde.",
+  statusCode: 429
+});
+
+// Limitador de borrado de comentarios
+const borradoLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10, // Máximo 10 comentarios cada 15 minutos por IP
+  message: "Demasiadas solicitudes. Por favor, intente más tarde.",
+  statusCode: 429
+});
+
+// Limitador general
+const generalLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 30, // Máximo 30 acciones por minuto por IP
+  message: "Demasiadas solicitudes. Espera un momento.",
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 // Generación del archivo de logs
@@ -95,64 +193,56 @@ const accessLogStream = fs.createWriteStream(
   path.join(__dirname, 'access.log'),
   { flags: 'a' }
 );
-// Simulo 'combined' pero con horario Arg.
-const formatoApacheArg = ':remote-addr - :remote-user [:fecha_arg] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"';
+const formatoApacheArg = ':remote-addr - :remote-user [:fecha_arg] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"'; // Simulo 'combined' pero con horario Arg.
 app.use(morgan(formatoApacheArg, { stream: accessLogStream }));
 
 // Ruta de registro
-app.post("/registro", async (req, res) => {
+app.post(
+  "/registro", 
+  validarRegistroIngreso, 
+  registroLimiter, 
+  generalLimiter,
+  async (req, res) => {
+  const errores = validationResult(req);
+  if (!errores.isEmpty()) {
+    return res.status(400).json({ errores: errores.array() });
+  }
   try {
     const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res
-        .status(400)
-        .json({ message: "Ingrese su email y contraseña para el registro." });
-    }
-
-    // Validación de usuarios en BD
     const usuarios = await obtenerUsuarios();
-    console.log(usuarios);
-    const usuarioExistente = usuarios.find(
-      (user) => user.username === username
-    );
+    const usuarioExistente = usuarios.find(user => user.username === username);
     if (usuarioExistente) {
       return res.status(409).json({
-        mensaje:
-          "El usuario ya existe. Por favor, utilice otro email para el registro.",
-      });
-    } else {
-      await registrarUsuario(username, password);
-      res.status(201).json({
-        mensaje: "Usuario registrado.",
+        mensaje: "El usuario ya existe. Por favor, utilice otro email para el registro.",
       });
     }
+    await registrarUsuario(username, password);
+    res.status(201).json({ mensaje: "Usuario registrado." });
   } catch (error) {
     res.status(500).json({
-      error:
-        "Error interno del servidor - Error al registrar usuario: " +
-        error.message,
+      error: "Error interno del servidor - Error al registrar usuario: " + error.message,
     });
   }
 });
 
 // Ruta de ingreso
-app.post("/ingreso", async (req, res) => {
+app.post(
+  "/ingreso", 
+  validarRegistroIngreso, 
+  ingresoLimiter, 
+  generalLimiter,
+  async (req, res) => {
+  const errores = validationResult(req);
+  if (!errores.isEmpty()) {
+    return res.status(400).json({ errores: errores.array() });
+  }
   try {
     const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({ message: "Faltan credenciales." });
-    }
-
-    // Validación de usuarios en BD
     const usuarios = await obtenerUsuarios();
     const usuarioValido = usuarios.find(
       (user) => user.username === username && user.password === password
     );
-
     if (usuarioValido) {
-      // Generar Token
       const token = jwt.sign(
         {
           id: usuarioValido.id,
@@ -160,20 +250,15 @@ app.post("/ingreso", async (req, res) => {
           rol: usuarioValido.rol,
         },
         SECRET_KEY,
-        {
-          expiresIn: "1h",
-        }
+        { expiresIn: "1h" }
       );
-
       res.status(200).json({ accessToken: token });
     } else {
       res.status(401).json({ mensaje: "Credenciales incorrectas." });
     }
   } catch (error) {
     res.status(500).json({
-      error:
-        "Error interno del servidor - Error al obtener usuarios: " +
-        error.message,
+      error: "Error interno del servidor - Error al obtener usuarios: " + error.message,
     });
   }
 });
@@ -183,6 +268,7 @@ app.get(
   "/comentarios",
   verifyToken,
   authorizeRole(["admin", "usuario"]),
+  generalLimiter,
   async (req, res) => {
     try {
       const { id, email } = req.query;
@@ -210,62 +296,19 @@ app.get(
 // Agrega un comentario
 app.post(
   "/agregar",
-  comentarioLimiter,
   verifyToken,
   authorizeRole(["admin", "usuario"]),
-  // Sanitización con express-validator y validacion de datos (modifico los mensajes para mejor compresión)
-  [
-  body("apellido")
-    .isString().withMessage("El apellido debe ser un texto.")
-    .trim().notEmpty().withMessage("El campo apellido es obligatorio.")
-    .custom(value => {
-      if (!/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/.test(value)) { // Acepta letras y espacios
-        throw new Error("El apellido contiene caracteres inválidos.");
-      }
-      return true;
-    }),
-  body("nombre")
-    .isString().withMessage("El nombre debe ser un texto.")
-    .trim().notEmpty().withMessage("El campo nombre es obligatorio.")
-    .custom(value => {
-      if (!/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/.test(value)) { // Acepta letras y espacios
-        throw new Error("El nombre contiene caracteres inválidos.");
-      }
-      return true;
-    }),
-  body("email")
-    .isEmail().withMessage("Debe ingresar un email válido.")
-    .normalizeEmail(),
-  body("asunto")
-    .isString().withMessage("El asunto debe ser un texto.")
-    .trim().notEmpty().withMessage("El campo asunto es obligatorio.")
-    .custom(value => {
-      if (!/^[a-zA-ZzÁÉÍÓÚÜÑáéíóúüñ0-9\s]+$/.test(value)) { // Acepta letras, números yespacios
-        throw new Error("El asunto contiene caracteres inválidos.");
-      }
-      return true;
-    }),
-  body("mensaje")
-    .isString().withMessage("El mensaje debe ser un texto.")
-    .trim().notEmpty().withMessage("El campo mensaje es obligatorio."),
-],
+  validarComentario,
+  agregadoLimiter,
+  generalLimiter,
   async (req, res) => {
-    // Verificar errores de validación
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+    const errores = validationResult(req);
+    if (!errores.isEmpty()) {
+      return res.status(400).json({ errores: errores.array() });
     }
-
     try {
       const fecha = new Date().toLocaleString("es-AR", fechaArg);
-
-      // Sanitizar campos del cuerpo
-      const apellido = sanitizeHtml(req.body.apellido);
-      const nombre = sanitizeHtml(req.body.nombre);
-      const email = sanitizeHtml(req.body.email);
-      const asunto = sanitizeHtml(req.body.asunto);
-      const mensaje = sanitizeHtml(req.body.mensaje);
-
+      const { apellido, nombre, email, asunto, mensaje } = req.body;
       await agregarComentario(fecha, apellido, nombre, email, asunto, mensaje);
       res.status(201).json({
         mensaje: "Comentario agregado.",
@@ -273,9 +316,7 @@ app.post(
       });
     } catch (error) {
       res.status(500).json({
-        error:
-          "Error interno del servidor - Error al agregar comentario: " +
-          error.message,
+        error: "Error interno del servidor - Error al agregar comentario: " + error.message,
       });
     }
   }
@@ -286,13 +327,20 @@ app.put(
   "/editar/:id",
   verifyToken,
   authorizeRole(["admin", "usuario"]),
+  validarComentario,
+  edicionLimiter,
+  generalLimiter,
   async (req, res) => {
+    const errores = validationResult(req);
+    if (!errores.isEmpty()) {
+      return res.status(400).json({ errores: errores.array() });
+    }
     try {
       const { id } = req.params;
       let { apellido, nombre, asunto, mensaje } = req.body;
       const comentario = await obtenerComentarioPorId(id);
       if (comentario.length == 0)
-        res.status(404).json({ mensaje: "Comentario no encontrado." });
+        return res.status(404).json({ mensaje: "Comentario no encontrado." });
       if (
         req.user.rol === "usuario" &&
         req.user.username !== comentario[0].email
@@ -300,35 +348,26 @@ app.put(
         return res
           .status(403)
           .json({ mensaje: "No tienes permiso para editar este comentario." });
-      } else {
-        if (!apellido) apellido = comentario[0].apellido;
-        if (!nombre) nombre = comentario[0].nombre;
-        if (!asunto) asunto = comentario[0].asunto;
-        if (!mensaje) mensaje = comentario[0].mensaje;
-        await actualizarComentario(
-          comentario[0]._id.toString(),
+      }
+      apellido = apellido || comentario[0].apellido; // Usar valor existente si no se mandó apellido
+      nombre = nombre || comentario[0].nombre; // Usar valor existente si no se mandó nombre
+      asunto = asunto || comentario[0].asunto; // Usar valor existente si no se mandó asunto
+      mensaje = mensaje || comentario[0].mensaje; // Usar valor existente si no se mandó mensaje
+      await actualizarComentario(comentario[0]._id.toString(), apellido, nombre, asunto, mensaje);
+      res.status(200).json({
+        mensaje: "Comentario actualizado.",
+        datos: {
+          fecha: comentario[0].fecha,
           apellido,
           nombre,
+          email: comentario[0].email,
           asunto,
-          mensaje
-        );
-        res.status(200).json({
-          mensaje: "Comentario actualizado.",
-          datos: {
-            fecha: comentario[0].fecha,
-            apellido: apellido,
-            nombre: nombre,
-            email: comentario[0].email,
-            asunto: asunto,
-            mensaje: mensaje,
-          },
-        });
-      }
+          mensaje,
+        },
+      });
     } catch (error) {
       res.status(500).json({
-        error:
-          "Error interno del servidor - Error al actualizar comentario: " +
-          error.message,
+        error: "Error interno del servidor - Error al actualizar comentario: " + error.message,
       });
     }
   }
@@ -339,6 +378,7 @@ app.delete(
   "/eliminar/:id",
   verifyToken,
   authorizeRole(["admin", "usuario"]),
+  generalLimiter,
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -371,6 +411,8 @@ app.delete(
   "/eliminar",
   verifyToken,
   authorizeRole(["admin"]),
+  borradoLimiter,
+  generalLimiter,
   async (req, res) => {
     try {
       const comentarios = await eliminarTodos();
