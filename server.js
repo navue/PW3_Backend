@@ -100,10 +100,6 @@ const validarComentario = [
       return true;
     })
     .customSanitizer(value => sanitizeHtml(value)),
-  body("email")
-    .isEmail().withMessage("Debe ingresar un email válido.")
-    .normalizeEmail()
-    .customSanitizer(value => sanitizeHtml(value)),
   body("asunto")
     .isString().withMessage("El asunto debe ser un texto.")
     .trim().notEmpty().withMessage("El campo asunto es obligatorio.")
@@ -308,11 +304,19 @@ app.post(
     }
     try {
       const fecha = new Date().toLocaleString("es-AR", fechaArg);
-      const { apellido, nombre, email, asunto, mensaje } = req.body;
-      await agregarComentario(fecha, apellido, nombre, email, asunto, mensaje);
+      const { apellido, nombre, asunto, mensaje } = req.body;
+      const email = req.user.username;
+      const resultado = await agregarComentario(
+        fecha, 
+        apellido, 
+        nombre, 
+        email, 
+        asunto, 
+        mensaje);
+      const id = resultado.insertedId;
       res.status(201).json({
         mensaje: "Comentario agregado.",
-        datos: { fecha, apellido, nombre, email, asunto, mensaje },
+        datos: {  id, fecha, apellido, nombre, email, asunto, mensaje },
       });
     } catch (error) {
       res.status(500).json({
@@ -349,15 +353,23 @@ app.put(
           .status(403)
           .json({ mensaje: "No tienes permiso para editar este comentario." });
       }
+      const fecha = new Date().toLocaleString("es-AR", fechaArg);
       apellido = apellido || comentario[0].apellido; // Usar valor existente si no se mandó apellido
       nombre = nombre || comentario[0].nombre; // Usar valor existente si no se mandó nombre
       asunto = asunto || comentario[0].asunto; // Usar valor existente si no se mandó asunto
       mensaje = mensaje || comentario[0].mensaje; // Usar valor existente si no se mandó mensaje
-      await actualizarComentario(comentario[0]._id.toString(), apellido, nombre, asunto, mensaje);
+      await actualizarComentario(
+        comentario[0]._id.toString(), 
+        fecha,
+        apellido, 
+        nombre, 
+        asunto, 
+        mensaje);
       res.status(200).json({
         mensaje: "Comentario actualizado.",
         datos: {
-          fecha: comentario[0].fecha,
+          id: comentario[0]._id.toString(),
+          fecha,
           apellido,
           nombre,
           email: comentario[0].email,
