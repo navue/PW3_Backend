@@ -124,9 +124,9 @@ const validarRegistroIngreso = [
     .customSanitizer(value => sanitizeHtml(value)),
   body("password")
     .isLength({ min: 6 }).withMessage("La contraseña debe tener al menos 6 caracteres.")
-    .matches(/[A-Z]/).withMessage("Debe contener al menos una letra mayúscula.")
-    .matches(/[a-z]/).withMessage("Debe contener al menos una letra minúscula.")
-    .matches(/[0-9]/).withMessage("Debe contener al menos un número.")
+    .matches(/[A-Z]/).withMessage("La contraseña debe contener al menos una letra mayúscula.")
+    .matches(/[a-z]/).withMessage("La contraseña debe contener al menos una letra minúscula.")
+    .matches(/[0-9]/).withMessage("La contraseña debe contener al menos un número.")
     .customSanitizer(value => sanitizeHtml(value))
 ];
 
@@ -134,52 +134,65 @@ const validarRegistroIngreso = [
 const registroLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5, // Máximo 5 acciones cada 15 minutos por IP
-  message: "Demasiados intentos. Intente nuevamente en 15 minutos.",
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({ mensaje: "Demasiados intentos. Intente nuevamente en 15 minutos." });
+  }
 });
 
 // Limitador de ingresos
 const ingresoLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5, // Máximo 5 acciones cada 15 minutos por IP
-  message: "Demasiados intentos. Intente nuevamente en 15 minutos.",
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({ mensaje: "Demasiados intentos. Intente nuevamente en 15 minutos." });
+  }
 });
 
 // Limitador de agregado de comentarios
 const agregadoLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10, // Máximo 10 comentarios cada 15 minutos por IP
-  message: "Demasiadas solicitudes. Por favor, intente más tarde.",
-  statusCode: 429
+  statusCode: 429,
+  handler: (req, res) => {
+    res.status(429).json({ mensaje: "Demasiadas solicitudes. Por favor, intente más tarde." });
+  }
 });
 
 // Limitador de edición de comentarios
 const edicionLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10, // Máximo 10 comentarios cada 15 minutos por IP
-  message: "Demasiadas solicitudes. Por favor, intente más tarde.",
-  statusCode: 429
+  statusCode: 429,
+  handler: (req, res) => {
+    res.status(429).json({ mensaje: "Demasiadas solicitudes. Por favor, intente más tarde." });
+  }
 });
 
 // Limitador de borrado de comentarios
 const borradoLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10, // Máximo 10 comentarios cada 15 minutos por IP
-  message: "Demasiadas solicitudes. Por favor, intente más tarde.",
-  statusCode: 429
+  statusCode: 429,
+  handler: (req, res) => {
+    res.status(429).json({ mensaje: "Demasiadas solicitudes. Por favor, intente más tarde." });
+  }
 });
 
 // Limitador general
 const generalLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 30, // Máximo 30 acciones por minuto por IP
-  message: "Demasiadas solicitudes. Espera un momento.",
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({ mensaje: "Demasiadas solicitudes. Espera un momento." });
+  }
 });
+
 
 // Generación del archivo de logs
 morgan.token("fecha_arg", () => {
